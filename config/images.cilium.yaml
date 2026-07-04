@@ -1,0 +1,50 @@
+# Cilium/Hubble Images Configuration
+# These images are required for Cilium CNI and Hubble observability
+images:
+  - name: cilium
+    source: quay.io/cilium/cilium:v1.19.5
+    target: localhost:5001/cilium/cilium:v1.19.5
+    mode: manifest-list
+    platforms:
+      - linux/amd64
+      - linux/arm64
+
+  - name: cilium-envoy
+    source: quay.io/cilium/cilium-envoy:v1.36.8-1781157951-a7f42a3390781539911b5b9107881b35ecc4e752
+    target: localhost:5001/cilium/cilium-envoy:v1.36.8-1781157951-a7f42a3390781539911b5b9107881b35ecc4e752
+    mode: manifest-list
+    platforms:
+      - linux/amd64
+      - linux/arm64
+
+  - name: hubble-relay
+    source: quay.io/cilium/hubble-relay:v1.19.5
+    target: localhost:5001/cilium/hubble-relay:v1.19.5
+    mode: manifest-list
+    platforms:
+      - linux/amd64
+      - linux/arm64
+
+  - name: hubble-ui
+    source: quay.io/cilium/hubble-ui:v0.13.5
+    target: localhost:5001/cilium/hubble-ui:v0.13.5
+    mode: manifest-list
+    platforms:
+      - linux/amd64
+      - linux/arm64
+
+  - name: hubble-ui-backend
+    source: quay.io/cilium/hubble-ui-backend:v0.13.5
+    target: localhost:5001/cilium/hubble-ui-backend:v0.13.5
+    mode: manifest-list
+    platforms:
+      - linux/amd64
+      - linux/arm64
+
+  - name: operator-generic
+    source: quay.io/cilium/operator-generic:v1.19.5
+    target: localhost:5001/cilium/operator-generic:v1.19.5
+    mode: manifest-list
+    platforms:
+      - linux/amd64
+      - linux/arm64

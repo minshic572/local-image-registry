@@ -1,0 +1,28 @@
+# Cyber-Resilience Project Images Configuration
+#
+# Copy this file to images.cyber-resilience.yaml and customize for your project.
+# This is an EXAMPLE file showing the format.
+#
+# Usage:
+#   cp config/images.cyber-resilience.yaml.example config/images.cyber-resilience.yaml
+#   # Edit config/images.cyber-resilience.yaml with your project images
+#   ./scripts/mirror-images.sh --config config/images.cyber-resilience.yaml
+#
+images:
+  # Example: Your project's custom application images
+  # - name: platform-api
+  #   source: ghcr.io/your-org/platform-api:v1.0.0
+  #   target: localhost:5001/cyber-resilience/platform-api:v1.0.0
+  #   mode: manifest-list
+  #   platforms:
+  #     - linux/amd64
+  #     - linux/arm64
+  #
+  # Example: Third-party dependencies you want to cache locally
+  # - name: nginx
+  #   source: nginx:1.25-alpine
+  #   target: localhost:5001/library/nginx:1.25-alpine
+  #   mode: manifest-list
+  #   platforms:
+  #     - linux/amd64
+  #     - linux/arm64
