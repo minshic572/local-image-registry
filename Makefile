@@ -1,4 +1,4 @@
-.PHONY: help start stop status connect-kind mirror-cilium lock clean
+.PHONY: help start stop stop-purge status connect-kind mirror-cilium lock clean clean-lock
 
 DEFAULT_REGISTRY_PORT ?= 5001
 DEFAULT_KIND_CLUSTER ?= cyber-resilience
@@ -10,6 +10,8 @@ help: ## Show this help message
 	@echo "  make start           - Start the local registry"
 	@echo "  make stop            - Stop the registry (keep data)"
 	@echo "  make stop-purge      - Stop and delete registry (remove data)"
+	@echo "  make clean           - Clear all images from registry (reset)"
+	@echo "  make clean-lock      - Clean lock files only"
 	@echo "  make status          - Check registry status"
 	@echo "  make connect-kind    - Connect registry to kind cluster"
 	@echo "  make mirror-cilium   - Mirror Cilium/Hubble images"
@@ -28,17 +30,8 @@ stop: ## Stop the registry (keep data)
 stop-purge: ## Stop and delete registry (remove data)
 	./scripts/registry-stop.sh --purge
 
-status: ## Check registry status
-	./scripts/registry-status.sh
+clean: ## Clear all images from registry (reset)
+	./scripts/registry-clean.sh
 
-connect-kind: ## Connect registry to kind cluster
-	./scripts/registry-connect-kind.sh
-
-mirror-cilium: ## Mirror Cilium/Hubble images
-	./scripts/mirror-images.sh --config config/images.cilium.yaml
-
-lock: ## Generate lock file from config
-	./scripts/generate-lock.sh --config config/images.cilium.yaml
-
-clean: ## Clean output directory
+clean-lock: ## Clean output lock files only
 	rm -f output/*.json
