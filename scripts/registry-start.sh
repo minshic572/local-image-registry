@@ -35,6 +35,7 @@ main() {
             --restart=always \
             -p "${HOST_PORT}:${INTERNAL_PORT}" \
             -v "${VOLUME_NAME}:/var/lib/registry" \
+            -e REGISTRY_STORAGE_DELETE_ENABLED=true \
             registry:2
     fi
 
