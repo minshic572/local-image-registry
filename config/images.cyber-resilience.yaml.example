@@ -12,7 +12,7 @@ images:
   # Example: Your project's custom application images
   # - name: platform-api
   #   source: ghcr.io/your-org/platform-api:v1.0.0
-  #   target: localhost:5001/cyber-resilience/platform-api:v1.0.0
+  #   target: harbor.local:5001/cyber-resilience/platform-api:v1.0.0
   #   mode: manifest-list
   #   platforms:
   #     - linux/amd64
@@ -21,7 +21,7 @@ images:
   # Example: Third-party dependencies you want to cache locally
   # - name: nginx
   #   source: nginx:1.25-alpine
-  #   target: localhost:5001/library/nginx:1.25-alpine
+  #   target: harbor.local:5001/library/nginx:1.25-alpine
   #   mode: manifest-list
   #   platforms:
   #     - linux/amd64

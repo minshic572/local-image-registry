@@ -7,6 +7,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${PROJECT_ROOT}/output"
+# shellcheck source=harbor-common.sh
+source "${SCRIPT_DIR}/harbor-common.sh"
 
 CONFIG_FILE=""
 REGISTRY_HOST=""
@@ -34,13 +36,13 @@ EXAMPLES:
     $(basename "$0") --config config/images.cilium.yaml
     $(basename "$0") --config config/images.cilium.yaml --platform linux/amd64
     $(basename "$0") --config config/images.cilium.yaml --dry-run
-    $(basename "$0") --config config/images.cilium.yaml --registry localhost:5001
+    $(basename "$0") --config config/images.cilium.yaml --registry harbor.local:5001
 
 CONFIG FORMAT:
     images:
       - name: cilium
         source: quay.io/cilium/cilium:v1.19.5
-        target: localhost:5001/cilium/cilium:v1.19.5
+        target: harbor.local:5001/cilium/cilium:v1.19.5
         mode: manifest-list
         platforms:
           - linux/amd64
@@ -99,6 +101,9 @@ main() {
     fi
 
     if [[ "${DRY_RUN}" != "true" ]]; then
+        if [[ -z "${REGISTRY_HOST}" ]]; then
+            REGISTRY_HOST=$(harbor_registry)
+        fi
         check_dependencies
         check_registry_reachable
     fi
@@ -215,7 +220,7 @@ apply_registry_override() {
     local new_registry="$2"
 
     # Replace only the registry host:port part, preserve the full path
-    # e.g., localhost:5001/cilium/cilium:v1.19.5 -> registry.local:5000/cilium/cilium:v1.19.5
+    # e.g., harbor.local:5001/cilium/cilium:v1.19.5 -> registry.local:5000/cilium/cilium:v1.19.5
     # Extract path after the first / (which is the registry:port)
     local path="${original_target#*/}"
 
@@ -329,10 +334,10 @@ check_dependencies() {
 }
 
 check_registry_reachable() {
-    local check_registry="${REGISTRY_HOST:-localhost:5001}"
+    local check_registry="${REGISTRY_HOST:-$(harbor_registry)}"
     echo -n "[CHECK] Registry at ${check_registry} is " >&2
 
-    if curl -sf "http://${check_registry}/v2/" >/dev/null 2>&1; then
+    if curl -sf "${HARBOR_SCHEME}://${check_registry}/v2/" >/dev/null 2>&1; then
         echo "reachable" >&2
     else
         echo "NOT reachable" >&2
@@ -424,7 +429,7 @@ image_exists() {
 
     # Try HEAD request to check if manifest exists
     local http_code
-    http_code=$(curl -sf -o /dev/null -w "%{http_code}" "http://${registry}${api_path}" 2>/dev/null) || true
+    http_code=$(curl -sf -o /dev/null -w "%{http_code}" "${HARBOR_SCHEME}://${registry}${api_path}" 2>/dev/null) || true
 
     if [[ "${http_code}" == "200" ]]; then
         return 0

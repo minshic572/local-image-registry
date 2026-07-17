@@ -1,454 +1,225 @@
-# Local Image Registry
+# Harbor-backed Local Image Registry
 
-A local Docker registry management and kind/Kubernetes cluster integration toolkit. This project uses the official `registry:2` image as its foundation, combined with `crane` for image synchronization, to provide a stable alternative to `kind load docker-image`, `ctr images import`, and Docker local caching.
+This repository manages a local Harbor deployment and its integration with
+Docker Desktop and kind. It replaces the previous standalone `registry:2`
+container with Harbor while preserving image repository paths and, after
+cutover, host port `5001`.
 
-## Why Local Registry Instead of `kind load docker-image` / `ctr images import`?
-
-| Method | Problem |
-|--------|---------|
-| `kind load docker-image` | Images are loaded into the kind node's containerd, but this doesn't work reliably with some CNI plugins and Helm installations that expect to pull from a registry. |
-| `ctr images import` | Requires exec into the node and doesn't integrate with Kubernetes' image pull mechanisms. |
-| Docker local cache | Only works for Docker-in-Docker scenarios, not for Kubernetes pods. |
-
-**Local registry benefits:**
-- Kubernetes pods pull images the same way they would in production
-- No node exec required after initial setup
-- Works consistently across pod restarts and new deployments
-- Simulates production environment where images come from a registry
-- Digest-based content addressing ensures image integrity
+Harbor provides project-based image management, vulnerability scanning, SBOM
+generation, OCI artifact storage, and support for Cosign/Notation signatures.
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        Host Machine                          │
-│                                                              │
-│  ┌──────────────────┐      ┌─────────────────────────────┐ │
-│  │  Docker Desktop   │      │  kind Cluster               │ │
-│  │                   │      │                             │ │
-│  │  ┌──────────────┐ │      │  ┌───────────────────────┐  │ │
-│  │  │ registry:2  │ │◄─────┼──│ containerd           │  │ │
-│  │  │              │ │      │  │                       │  │ │
-│  │  │ :5000 (int)  │ │      │  │ /etc/containerd/     │  │ │
-│  │  │ :5001 (host) │ │      │  │   certs.d/            │  │ │
-│  │  └──────────────┘ │      │  │   local-image-       │  │ │
-│  │         │        │      │  │   registry:5000/     │  │ │
-│  │         │        │      │  │   hosts.toml          │  │ │
-│  │  ┌──────────────┐ │      │  └───────────────────────┘  │ │
-│  │  │ crane copy   │ │      │                             │ │
-│  │  │ (sync tool)  │ │      │  ┌───────────────────────┐  │ │
-│  │  └──────────────┘ │      │  │ Kubernetes Pods      │  │ │
-│  └──────────────────┘      │  │ image: local-image-   │  │ │
-│                            │  │ registry:5000/image:tag│  │ │
-│                            │  └───────────────────────┘  │ │
-│                            └─────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+Harbor runs as an independent Docker Compose project on Docker Desktop. It is
+not deployed into kind, so recreating a cluster does not delete the registry.
+
+```text
+Host / CI ───────────────┐
+                        ├── harbor.local:5001 ── Harbor Compose stack
+kind containerd ─────────┘                         ├── registry storage
+                                                   ├── PostgreSQL / Redis
+                                                   └── Trivy
 ```
 
-### Components
+The official Harbor installer creates multiple containers. The Compose project
+is the deployment and lifecycle boundary.
 
-1. **registry:2** - Official Docker distribution registry server
-2. **crane** - Google's container registry tool for efficient image copying
-3. **kind nodes** - Configured with `hosts.toml` to resolve `local-image-registry:5000`
-4. **ConfigMap** - `kube-public/local-registry-hosting` for cluster-wide registry info
+## Requirements
 
-## Prerequisites
+- Docker Desktop with Docker Compose v2
+- At least 4 CPUs, 8 GiB memory, and 40 GiB free disk recommended
+- `curl`, `python3`, `openssl`, and `tar`
+- `crane` for image migration and mirroring
+- `kind` and `kubectl` for cluster integration
 
-- macOS or Linux
-- Docker Desktop (or Docker Engine)
-- kind (`brew install kind`)
-- kubectl
-- crane (`brew install crane`)
+Harbor officially documents Linux Docker hosts. Running its Linux containers
+on Docker Desktop is suitable for this local development use case, but Apple
+Silicon may run some Harbor images through amd64 emulation. The installer emits
+a warning when it detects an arm64 Docker server.
 
-## Quick Start
+## Configuration
 
-### 1. Start the Registry
+Create the local configuration:
 
 ```bash
-# Start the local registry
-make start
+cp config/harbor.env.example config/harbor.env
+```
 
-# Verify it's running
+The default public address is `harbor.local`. Add it to the host resolver:
+
+```text
+127.0.0.1 harbor.local
+```
+
+On macOS this normally means adding the line to `/etc/hosts` with
+administrator privileges. The name must resolve before Docker login, migration,
+or opening the Harbor Portal.
+
+The default local deployment uses HTTP. In Docker Desktop **Settings → Docker
+Engine**, add both migration-stage and final authorities, then restart Docker
+Desktop:
+
+```json
+{
+  "insecure-registries": [
+    "harbor.local:5001",
+    "harbor.local:5002"
+  ]
+}
+```
+
+This is only appropriate for an isolated local development environment. A
+shared or network-accessible Harbor must use HTTPS and a trusted certificate.
+
+Configuration and generated secrets are intentionally excluded from Git:
+
+```text
+config/harbor.env
+.harbor/secrets.env
+.harbor/migration-robot.json
+.harbor/data/
+```
+
+## Fresh Harbor installation
+
+The old registry can continue serving `localhost:5001` while Harbor is prepared
+on staging port `5002`:
+
+```bash
+make harbor-install
+make harbor-init
 make status
 ```
 
-### 2. Sync Cilium/Hubble Images
+`harbor-install` performs the following operations:
+
+1. Downloads the pinned official Harbor online installer.
+2. Verifies the archive against the SHA-256 digest in GitHub release metadata
+   when that metadata is available.
+3. Generates local administrator and database passwords with mode `0600`.
+4. Renders `harbor.yml` from the official release template.
+5. Installs Harbor with Trivy on `harbor.local:5002`.
+
+`harbor-init` creates `library`, `cilium`, and `cyber-resilience` projects,
+enables scan-on-push and SBOM generation, and creates a scoped migration robot.
+Projects are public for anonymous pulls; all pushes require authentication.
+
+## Migrate registry:2
+
+See [MIGRATION.md](MIGRATION.md) for the complete runbook.
+
+The normal flow is:
 
 ```bash
-# Mirror all Cilium images to local registry
+# Inventory the still-running registry:2 at localhost:5001.
+make inventory
+
+# Copy to Harbor on port 5002 and verify every top-level digest.
+make migrate
+
+# Freeze image writers, repeat inventory and migration for the final delta.
+make inventory
+make migrate
+
+# Stop registry:2 and reconfigure Harbor to use port 5001.
+make cutover
+```
+
+The cutover keeps the old container and its Docker volume. During the
+observation window:
+
+```bash
+make rollback
+```
+
+stops Harbor and starts the preserved registry:2 on port `5001` again.
+
+## Daily operations
+
+```bash
+make start
+make stop
+make status
+make logs
+```
+
+Destructive Harbor purge is deliberately not automated. Harbor data includes
+registry blobs, PostgreSQL metadata, Redis state, scanner data, signatures, and
+SBOM attachments; deletion must follow a verified backup.
+
+## Mirror images
+
+```bash
 make mirror-cilium
 
-# Or generate lock file without syncing
-make lock
+./scripts/mirror-images.sh \
+  --config config/images.cilium.yaml \
+  --platform linux/amd64
 ```
 
-### 3. Create kind Cluster (if not exists)
+The mirror script automatically targets Harbor's current staging or final port.
+It uses Docker's credential store, so authenticate first when not using the
+migration robot:
 
 ```bash
-# Create a new kind cluster
-kind create cluster --name cyber-resilience
-
-# Note: For kind < 0.20, you may need to enable config_path in containerd:
-# kind create cluster --name cyber-resilience --config - <<EOF
-# kind: Cluster
-# nodes:
-# - role: control-plane
-#   extraMounts:
-#   - hostPath: /etc/docker/daemon.json
-#     containerPath: /etc/docker/daemon.json
-# EOF
+docker login harbor.local:5001
 ```
 
-### 4. Connect Registry to kind Cluster
+Repository paths retain the Harbor project as their first segment:
+
+```text
+harbor.local:5001/cilium/cilium:v1.19.5
+harbor.local:5001/cyber-resilience/platform-api:dev
+harbor.local:5001/library/nginx:1.25-alpine
+```
+
+A root-level registry:2 repository such as `busybox` is migrated to
+`library/busybox`, because Harbor requires every repository to belong to a
+project.
+
+## kind integration
+
+After cutover:
 
 ```bash
-# Connect registry to kind cluster
 make connect-kind
 ```
 
-### 5. Verify Everything Works
+The command:
 
-```bash
-# Check registry status
-make status
+- maps `harbor.local` to Docker Desktop's host gateway in each kind node;
+- writes containerd `hosts.toml` for `harbor.local:5001`;
+- updates `kube-public/local-registry-hosting`.
 
-# List synced images
-curl -s http://localhost:5001/v2/_catalog
-
-# Verify nodes can reach registry by copying a test image:
-# First, tag and push busybox to local registry:
-docker pull busybox:latest
-docker tag busybox:latest localhost:5001/busybox:latest
-docker push localhost:5001/busybox:latest
-
-# Then verify on a kind node:
-docker exec cyber-resilience-control-plane crictl pull localhost:5001/busybox:latest
-```
-
-## Complete Verification Path
-
-Here's a full end-to-end verification:
-
-```bash
-# Step 1: Start local registry
-make start
-
-# Step 2: Verify registry is accessible
-curl -s http://localhost:5001/v2/ | jq
-# Expected: {"version":"2"}
-
-# Step 3: Sync Cilium images (this may take several minutes)
-make mirror-cilium
-
-# Step 4: Verify images were synced
-curl -s http://localhost:5001/v2/_catalog | jq
-# Expected: {"repositories":["cilium/cilium","cilium/cilium-envoy",...]}
-
-# Step 5: Check specific image
-curl -s http://localhost:5001/v2/cilium/cilium/tags/list | jq
-
-# Step 6: Create kind cluster (if not exists)
-kind create cluster --name cyber-resilience
-
-# Step 7: Connect registry to cluster
-make connect-kind
-
-# Step 8: Push a test image to local registry
-docker pull busybox:latest
-docker tag busybox:latest localhost:5001/busybox:latest
-docker push localhost:5001/busybox:latest
-
-# Step 9: Verify node can pull from local registry
-docker exec cyber-resilience-control-plane crictl pull localhost:5001/busybox:latest
-
-# Step 10: Verify pod can use local registry image
-kubectl run test --image=localhost:5001/busybox:latest -- sleep 10
-kubectl logs test
-kubectl delete pod test
-
-# Step 11: Cleanup
-kind delete cluster --name cyber-resilience
-make stop
-```
-
-## Usage Guide
-
-### Registry Management
-
-```bash
-# Start registry (creates if not exists, starts if stopped)
-make start
-
-# Stop registry (keeps data)
-make stop
-
-# Stop and delete everything (loses all images)
-make stop-purge
-
-# Check status
-make status
-```
-
-### Image Synchronization
-
-```bash
-# Sync images from YAML config
-./scripts/mirror-images.sh --config config/images.cilium.yaml
-
-# Sync specific platform only
-./scripts/mirror-images.sh --config config/images.cilium.yaml --platform linux/amd64
-
-# Dry run (see what would be synced, no registry required)
-./scripts/mirror-images.sh --config config/images.cilium.yaml --dry-run
-
-# Force re-sync even if images exist
-./scripts/mirror-images.sh --config config/images.cilium.yaml --force
-
-# Override target registry
-./scripts/mirror-images.sh --config config/images.cilium.yaml --registry 192.168.1.100:5001
-
-# Override mode
-./scripts/mirror-images.sh --config config/images.cilium.yaml --mode single-platform
-```
-
-### Push Local Images
-
-```bash
-# Push a local Docker image to registry
-./scripts/push-local-image.sh \
-    --source myapp:v1 \
-    --target localhost:5001/myorg/myapp:v1
-```
-
-### Kind Integration
-
-```bash
-# Connect registry to kind cluster (uses defaults)
-make connect-kind
-
-# Or with custom parameters
-./scripts/registry-connect-kind.sh --cluster my-cluster --registry my-registry
-```
-
-## How Cyber-Resilience Uses This
-
-### 1. Third-Party Images → Local Registry
-
-Instead of referencing external registries in your Kubernetes manifests:
+Workloads then use the same reference in every context:
 
 ```yaml
-# Before (external registry)
-image: quay.io/cilium/cilium:v1.19.5
-
-# After (local registry)
-image: local-image-registry:5000/cilium/cilium:v1.19.5
+image: harbor.local:5001/cilium/cilium:v1.19.5
 ```
 
-### 2. Project Images → Local Registry
+Public projects do not need an image pull secret. Private projects require a
+Kubernetes `imagePullSecret` created from a read-only Harbor robot account.
 
-Build and push your project images to local registry:
+## Supply-chain security rollout
+
+Migration deliberately leaves signature and vulnerability pull enforcement
+disabled so legacy images remain usable. Enable controls in this order:
+
+1. Establish reliable scan-on-push and scheduled scans.
+2. Review CVE severity policy and allowlists.
+3. Generate or attach SBOMs.
+4. Sign immutable image digests using Cosign or Notation.
+5. Generate SLSA/in-toto provenance in CI and store it as an OCI attestation.
+6. Enforce signature and provenance policy in Kubernetes admission control.
+
+Harbor stores and manages signatures and attestations; it does not establish
+trusted provenance by itself.
+
+## Validation
 
 ```bash
-# Build your image
-docker build -t platform-api:dev .
-
-# Push to local registry
-./scripts/push-local-image.sh \
-    --source platform-api:dev \
-    --target localhost:5001/cyber-resilience/platform-api:dev
+make verify
 ```
 
-### 3. Kubernetes Manifests
-
-All Helm values and YAML manifests reference local registry:
-
-```yaml
-# values.yaml for Cilium
-cilium:
-  image: local-image-registry:5000/cilium/cilium
-  tag: v1.19.5
-
-hubble:
-  relay:
-    image: local-image-registry:5000/cilium/hubble-relay
-    tag: v1.19.5
-```
-
-## Manifest-List vs Single-Platform Mode
-
-### manifest-list (Default)
-
-```
-┌─────────────────────────┐
-│   manifest-list         │
-│   (multi-arch)          │
-├─────────────────────────┤
-│  ┌───────────────────┐  │
-│  │ linux/amd64       │  │
-│  │ sha256:abc123...  │  │
-│  └───────────────────┘  │
-│  ┌───────────────────┐  │
-│  │ linux/arm64       │  │
-│  │ sha256:def456...  │  │
-│  └───────────────────┘  │
-└─────────────────────────┘
-```
-
-- **Recommended** for long-term private registry use
-- Preserves upstream digest semantics
-- Kubernetes automatically pulls correct platform for each node
-- Larger storage footprint but best compatibility
-
-### single-platform
-
-```
-┌─────────────────────────┐
-│   single image          │
-│   (one platform)        │
-├─────────────────────────┤
-│  ┌───────────────────┐  │
-│  │ linux/amd64       │  │
-│  │ sha256:abc123...  │  │
-│  └───────────────────┘  │
-└─────────────────────────┘
-```
-
-- Saves storage space
-- You must ensure platform compatibility at deploy time
-- Use `--platform linux/amd64` to sync specific platform
-
-## Known Limitations
-
-### localhost Differences
-
-| Context | localhost:5001 means |
-|---------|---------------------|
-| Host machine | Your local registry |
-| Inside kind node | localhost inside node (not your registry!) |
-
-**Always use `local-image-registry:5000` inside kind nodes**, not `localhost:5001`.
-
-### kind Version Compatibility
-
-For kind versions < 0.20, containerd may require additional configuration. When creating a new cluster, you may need to enable the `config_path` feature:
-
-```bash
-cat > kind-config.yaml <<EOF
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-- role: control-plane
-  extraArgs:
-    # Enable registry config path for containerd
-    config-source: kubelet
-EOF
-
-kind create cluster --name cyber-resilience --config kind-config.yaml
-```
-
-After connecting the registry, you may need to restart containerd on each node for the changes to take effect:
-
-```bash
-docker exec cyber-resilience-control-plane systemctl restart containerd
-```
-
-### Network Configuration
-
-- Registry container must be on the `kind` Docker network
-- Kind nodes must have `hosts.toml` configured for containerd
-- Some older kind versions may require containerd restart
-
-### Production Alternatives
-
-For production environments, consider these mature solutions:
-
-- **Harbor** - Full-featured registry with UI, replication, vulnerability scanning
-- **JFrog Artifactory** - Universal artifact repository
-- **Sonatype Nexus** - Artifact repository manager
-- **CNCF Distribution (zot)** - CNCF project, OCI-compatible registry server
-
-## Project Structure
-
-```
-local-image-registry/
-├── README.md
-├── Makefile
-├── config/
-│   ├── images.cilium.yaml          # Cilium/Hubble images
-│   └── images.cyber-resilience.yaml.example
-├── scripts/
-│   ├── registry-start.sh          # Start registry
-│   ├── registry-stop.sh           # Stop registry
-│   ├── registry-status.sh          # Check status
-│   ├── registry-connect-kind.sh   # Connect to kind
-│   ├── mirror-images.sh            # Sync images
-│   ├── push-local-image.sh        # Push local images
-│   └── generate-lock.sh            # Generate lock file
-└── output/
-    ├── .gitkeep
-    ├── images-lock.json            # Synced images record
-    └── local-images-lock.json      # Local images record
-```
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DEFAULT_REGISTRY_PORT` | `5001` | Registry host port |
-| `DEFAULT_KIND_CLUSTER` | `cyber-resilience` | Default kind cluster name |
-| `CONTAINER_NAME` | `local-image-registry` | Registry container name |
-
-## Troubleshooting
-
-### Registry not responding
-
-```bash
-# Check if container is running
-docker ps | grep local-image-registry
-
-# Check logs
-docker logs local-image-registry
-
-# Restart if needed
-make stop && make start
-```
-
-### Kind nodes can't pull images
-
-```bash
-# Verify registry is on kind network
-docker network inspect kind | grep local-image-registry
-
-# Check hosts.toml on node
-docker exec cyber-resilience-control-plane cat /etc/containerd/certs.d/local-image-registry:5000/hosts.toml
-
-# Restart containerd on node
-docker exec cyber-resilience-control-plane systemctl restart containerd
-
-# Re-run connect script
-make connect-kind
-```
-
-### Images not found after sync
-
-```bash
-# Check registry catalog
-curl http://localhost:5001/v2/_catalog
-
-# Check specific image
-curl http://localhost:5001/v2/cilium/cilium/tags/list
-```
-
-### YAML config not parsing correctly
-
-```bash
-# Test YAML parsing with dry-run (no registry required)
-./scripts/generate-lock.sh --config config/images.cilium.yaml
-
-# Check output/images-lock.json
-cat output/images-lock.json | jq
-```
-
-## License
-
-MIT
+The checks cover Bash/Python syntax, Harbor configuration rendering, Registry
+V2 inventory, multi-architecture descriptors, and existing image-config parsing.

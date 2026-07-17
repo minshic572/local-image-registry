@@ -1,37 +1,71 @@
-.PHONY: help start stop stop-purge status connect-kind mirror-cilium lock clean clean-lock
+.PHONY: help harbor-install harbor-init start stop status logs inventory migrate cutover rollback connect-kind mirror-cilium lock clean-lock verify
 
-DEFAULT_REGISTRY_PORT ?= 5001
 DEFAULT_KIND_CLUSTER ?= cyber-resilience
 
-help: ## Show this help message
-	@echo "Local Image Registry Makefile"
+help: ## Show available commands
+	@echo "Harbor-backed Local Image Registry"
 	@echo ""
-	@echo "Usage:"
-	@echo "  make start           - Start the local registry"
-	@echo "  make stop            - Stop the registry (keep data)"
-	@echo "  make stop-purge      - Stop and delete registry (remove data)"
-	@echo "  make clean           - Clear all images from registry (reset)"
-	@echo "  make clean-lock      - Clean lock files only"
-	@echo "  make status          - Check registry status"
-	@echo "  make connect-kind    - Connect registry to kind cluster"
-	@echo "  make mirror-cilium   - Mirror Cilium/Hubble images"
-	@echo "  make lock            - Generate lock file from config"
+	@echo "Deployment:"
+	@echo "  make harbor-install  - Download, verify and install Harbor with Trivy on staging port"
+	@echo "  make harbor-init     - Create projects and migration robot account"
+	@echo "  make start           - Start the Harbor Compose stack"
+	@echo "  make stop            - Stop Harbor and preserve data"
+	@echo "  make status          - Show Harbor component and API health"
+	@echo "  make logs            - Show recent Harbor logs"
 	@echo ""
-	@echo "Environment variables:"
-	@echo "  DEFAULT_REGISTRY_PORT - Registry port (default: 5001)"
-	@echo "  DEFAULT_KIND_CLUSTER   - Kind cluster name (default: cyber-resilience)"
+	@echo "Migration:"
+	@echo "  make inventory       - Inventory registry:2 repositories, tags and digests"
+	@echo "  make migrate         - Copy inventory to Harbor and verify digests"
+	@echo "  make cutover         - Stop registry:2 and move Harbor from 5002 to 5001"
+	@echo "  make rollback        - Stop Harbor and restart the preserved registry:2"
+	@echo ""
+	@echo "Operations:"
+	@echo "  make connect-kind    - Configure kind containerd for Harbor"
+	@echo "  make mirror-cilium   - Mirror configured Cilium images to Harbor"
+	@echo "  make lock            - Generate the image lock file"
+	@echo "  make verify          - Run static and unit checks"
 
-start: ## Start the local registry
+harbor-install: ## Install Harbor with Trivy on the staging port
+	./scripts/harbor-install.sh
+
+harbor-init: ## Create Harbor projects and robot account
+	./scripts/harbor-init.sh
+
+start: ## Start Harbor
 	./scripts/registry-start.sh
 
-stop: ## Stop the registry (keep data)
+stop: ## Stop Harbor and preserve data
 	./scripts/registry-stop.sh
 
-stop-purge: ## Stop and delete registry (remove data)
-	./scripts/registry-stop.sh --purge
+status: ## Check Harbor status
+	./scripts/registry-status.sh
 
-clean: ## Clear all images from registry (reset)
-	./scripts/registry-clean.sh
+logs: ## Show recent Harbor logs
+	./scripts/harbor-manage.sh logs
 
-clean-lock: ## Clean output lock files only
+inventory: ## Inventory the legacy registry:2 instance
+	./scripts/registry-inventory.py --registry http://localhost:5001 --output output/registry-v2-inventory.json
+
+migrate: ## Copy inventoried images to Harbor and verify digests
+	./scripts/migrate-to-harbor.sh
+
+cutover: ## Cut over from registry:2 to Harbor
+	./scripts/harbor-cutover.sh
+
+rollback: ## Roll back to registry:2
+	./scripts/harbor-rollback.sh
+
+connect-kind: ## Connect Harbor to kind cluster
+	DEFAULT_KIND_CLUSTER=$(DEFAULT_KIND_CLUSTER) ./scripts/registry-connect-kind.sh
+
+mirror-cilium: ## Mirror Cilium/Hubble images to Harbor
+	./scripts/mirror-images.sh --config config/images.cilium.yaml
+
+lock: ## Generate lock file without syncing
+	./scripts/generate-lock.sh --config config/images.cilium.yaml
+
+clean-lock: ## Remove generated reports and lock files
 	rm -f output/*.json
+
+verify: ## Run repository checks
+	./tests/run.sh

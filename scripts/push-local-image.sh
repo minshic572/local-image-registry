@@ -19,15 +19,15 @@ Push a local Docker image to the local registry.
 
 OPTIONS:
     --source IMAGE    Source image (e.g., cyber-resilience/platform-api:dev)
-    --target IMAGE    Target image (e.g., localhost:5001/cyber-resilience/platform-api:dev)
+    --target IMAGE    Target image (e.g., harbor.local:5001/cyber-resilience/platform-api:dev)
     -h, --help       Show this help message
 
 EXAMPLES:
-    $(basename "$0") --source myapp:v1 --target localhost:5001/myapp:v1
+    $(basename "$0") --source myapp:v1 --target harbor.local:5001/library/myapp:v1
 
     $(basename "$0") \\
         --source cyber-resilience/platform-api:dev \\
-        --target localhost:5001/cyber-resilience/platform-api:dev
+        --target harbor.local:5001/cyber-resilience/platform-api:dev
 EOF
 }
 

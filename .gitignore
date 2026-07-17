@@ -1,5 +1,7 @@
 # Output files with lock data
 output/*.json
+config/harbor.env
+.harbor/
 !output/.gitkeep
 
 # macOS
