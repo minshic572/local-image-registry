@@ -36,8 +36,10 @@ main() {
     echo "[INSTALL] Starting Harbor ${HARBOR_VERSION} with Trivy on port ${HARBOR_STAGING_PORT}..."
     (
         cd "${HARBOR_INSTALLER_DIR}"
-        ./install.sh --with-trivy
+        ./prepare --with-trivy
     )
+    normalize_harbor_compose
+    harbor_compose up -d
     write_state "${HARBOR_STAGING_PORT}" "staging"
     wait_for_harbor
 
@@ -60,6 +62,9 @@ PY
     fi
 
     if [[ "${HARBOR_SCHEME}" == "http" ]]; then
+        if [[ "${HARBOR_HOSTNAME}" == "localhost" || "${HARBOR_HOSTNAME}" == "127.0.0.1" || "${HARBOR_HOSTNAME}" == "::1" ]]; then
+            return
+        fi
         local registry_config
         registry_config=$(docker info --format '{{json .RegistryConfig.IndexConfigs}}')
         if ! python3 - "${registry_config}" \
@@ -151,6 +156,7 @@ render_config() {
         --template "${HARBOR_INSTALLER_DIR}/harbor.yml.tmpl" \
         --output "${HARBOR_CONFIG_FILE}" \
         --hostname "${HARBOR_HOSTNAME}" \
+        --scheme "${HARBOR_SCHEME}" \
         --port "${port}" \
         --admin-password "${HARBOR_ADMIN_PASSWORD}" \
         --database-password "${HARBOR_DB_PASSWORD}" \

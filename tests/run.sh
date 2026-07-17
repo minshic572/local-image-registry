@@ -25,6 +25,10 @@ cat > "${test_dir}/harbor.yml.tmpl" <<'EOF'
 hostname: reg.mydomain.com
 http:
   port: 80
+https:
+  port: 443
+  certificate: /your/certificate/path
+  private_key: /your/private/key/path
 harbor_admin_password: Harbor12345
 database:
   password: root123
@@ -37,6 +41,7 @@ python3 scripts/render-harbor-config.py \
     --template "${test_dir}/harbor.yml.tmpl" \
     --output "${test_dir}/harbor.yml" \
     --hostname harbor.local \
+    --scheme http \
     --port 5002 \
     --admin-password admin-secret \
     --database-password db-secret \
@@ -44,6 +49,8 @@ python3 scripts/render-harbor-config.py \
     --log-location /tmp/harbor-log
 grep -q '^hostname: harbor.local$' "${test_dir}/harbor.yml"
 grep -q '^  port: 5002$' "${test_dir}/harbor.yml"
+grep -q '^# https:$' "${test_dir}/harbor.yml"
+grep -q '^#   certificate: /your/certificate/path$' "${test_dir}/harbor.yml"
 grep -q '^data_volume: /tmp/harbor-data$' "${test_dir}/harbor.yml"
 grep -q '^    location: /tmp/harbor-log$' "${test_dir}/harbor.yml"
 
@@ -52,5 +59,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests/test_registry_inventory.py
 
 echo "[TEST] Existing configuration parser"
 ./scripts/mirror-images.sh --config config/images.cilium.yaml --dry-run >/dev/null
+
+echo "[TEST] Harbor login"
+./tests/test_harbor_login.sh
 
 echo "[OK] All tests passed"

@@ -100,9 +100,11 @@ make status
 4. Renders `harbor.yml` from the official release template.
 5. Installs Harbor with Trivy on `harbor.local:5002`.
 
-`harbor-init` creates `library`, `cilium`, and `cyber-resilience` projects,
-enables scan-on-push and SBOM generation, and creates a scoped migration robot.
-Projects are public for anonymous pulls; all pushes require authentication.
+`harbor-init` creates the default `library`, `cilium`, `cyber-resilience`,
+`falcosecurity`, and `helm` projects, enables scan-on-push and SBOM generation,
+and creates a scoped migration robot. Projects are public for anonymous pulls;
+all pushes require authentication. The migration robot receives pull, push, and
+OCI artifact permissions for those projects.
 
 ## Migrate registry:2
 
@@ -158,12 +160,22 @@ make mirror-cilium
 ```
 
 The mirror script automatically targets Harbor's current staging or final port.
-It uses Docker's credential store, so authenticate first when not using the
-migration robot:
+It uses Docker's credential store, so authenticate first:
 
 ```bash
-docker login harbor.local:5001
+make login
 ```
+
+Other local projects can prepare Docker and Helm authentication without reading
+Harbor credentials directly:
+
+```bash
+make -C ~/projects/local-image-registry login
+```
+
+The login command reads the migration robot credentials created by
+`make harbor-init`, selects the active Harbor port automatically, and logs in to
+both Docker and Helm. It is safe to run repeatedly.
 
 Repository paths retain the Harbor project as their first segment:
 

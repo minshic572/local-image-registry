@@ -68,6 +68,7 @@ reconfigure_harbor() {
         --template "${HARBOR_INSTALLER_DIR}/harbor.yml.tmpl" \
         --output "${HARBOR_CONFIG_FILE}" \
         --hostname "${HARBOR_HOSTNAME}" \
+        --scheme "${HARBOR_SCHEME}" \
         --port "${port}" \
         --admin-password "${HARBOR_ADMIN_PASSWORD}" \
         --database-password "${HARBOR_DB_PASSWORD}" \
@@ -76,8 +77,9 @@ reconfigure_harbor() {
     (
         cd "${HARBOR_INSTALLER_DIR}"
         ./prepare --with-trivy
-        docker compose up -d
     )
+    normalize_harbor_compose
+    harbor_compose up -d
 }
 
 write_state() {

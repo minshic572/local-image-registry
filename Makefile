@@ -1,4 +1,4 @@
-.PHONY: help harbor-install harbor-init start stop status logs inventory migrate cutover rollback connect-kind mirror-cilium lock clean-lock verify
+.PHONY: help harbor-install harbor-init login start stop status logs inventory migrate cutover rollback connect-kind mirror-cilium lock clean-lock verify
 
 DEFAULT_KIND_CLUSTER ?= cyber-resilience
 
@@ -8,6 +8,7 @@ help: ## Show available commands
 	@echo "Deployment:"
 	@echo "  make harbor-install  - Download, verify and install Harbor with Trivy on staging port"
 	@echo "  make harbor-init     - Create projects and migration robot account"
+	@echo "  make login           - Authenticate Docker and Helm to the active Harbor registry"
 	@echo "  make start           - Start the Harbor Compose stack"
 	@echo "  make stop            - Stop Harbor and preserve data"
 	@echo "  make status          - Show Harbor component and API health"
@@ -30,6 +31,9 @@ harbor-install: ## Install Harbor with Trivy on the staging port
 
 harbor-init: ## Create Harbor projects and robot account
 	./scripts/harbor-init.sh
+
+login: ## Authenticate Docker and Helm to Harbor
+	./scripts/harbor-login.sh
 
 start: ## Start Harbor
 	./scripts/registry-start.sh

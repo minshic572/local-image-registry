@@ -16,7 +16,7 @@ HARBOR_HOSTNAME="${HARBOR_HOSTNAME:-harbor.local}"
 HARBOR_SCHEME="${HARBOR_SCHEME:-http}"
 HARBOR_STAGING_PORT="${HARBOR_STAGING_PORT:-5002}"
 HARBOR_FINAL_PORT="${HARBOR_FINAL_PORT:-5001}"
-HARBOR_PROJECTS="${HARBOR_PROJECTS:-library cilium cyber-resilience}"
+HARBOR_PROJECTS="${HARBOR_PROJECTS:-library cilium cyber-resilience falcosecurity helm}"
 HARBOR_PUBLIC_PROJECTS="${HARBOR_PUBLIC_PROJECTS:-true}"
 HARBOR_INSECURE="${HARBOR_INSECURE:-true}"
 HARBOR_COMPOSE_PROJECT="${HARBOR_COMPOSE_PROJECT:-local-image-registry}"
@@ -85,9 +85,56 @@ harbor_compose() {
     docker compose --file "${HARBOR_COMPOSE_FILE}" "$@"
 }
 
+normalize_harbor_compose() {
+    local registry_cert="${HARBOR_DATA_DIR}/secret/registry/root.crt"
+    local registry_config_cert="${HARBOR_INSTALLER_DIR}/common/config/registry/root.crt"
+    if [[ -f "${registry_cert}" ]]; then
+        cp "${registry_cert}" "${registry_config_cert}"
+    fi
+
+    python3 - "${HARBOR_COMPOSE_FILE}" "${registry_cert}" <<'PY'
+from pathlib import Path
+import sys
+
+compose_file = Path(sys.argv[1])
+registry_cert = sys.argv[2]
+lines = compose_file.read_text().splitlines()
+rendered = []
+index = 0
+in_redis = False
+while index < len(lines):
+    if lines[index] == "  redis:":
+        in_redis = True
+    elif lines[index].startswith("  ") and not lines[index].startswith("    ") and lines[index] != "  redis:":
+        in_redis = False
+
+    if in_redis and lines[index].strip().startswith("image: goharbor/redis-photon:"):
+        rendered.append("    image: redis:7-alpine")
+        rendered.append("    command: [\"redis-server\", \"--dir\", \"/var/lib/redis\", \"--appendonly\", \"yes\"]")
+        index += 1
+        continue
+
+    if (
+        lines[index].strip() == "- type: bind"
+        and index + 2 < len(lines)
+        and lines[index + 1].strip() == f"source: {registry_cert}"
+        and lines[index + 2].strip() == "target: /etc/registry/root.crt"
+    ):
+        index += 3
+        continue
+    rendered.append(lines[index])
+    index += 1
+compose_file.write_text("\n".join(rendered) + "\n")
+PY
+}
+
 curl_harbor() {
     local curl_args=(-fsS)
-    curl_args+=(--resolve "${HARBOR_HOSTNAME}:$(active_harbor_port):127.0.0.1")
+    if [[ "${HARBOR_HOSTNAME}" == "localhost" ]]; then
+        curl_args+=(--ipv6)
+    elif [[ "${HARBOR_HOSTNAME}" != "127.0.0.1" && "${HARBOR_HOSTNAME}" != "::1" ]]; then
+        curl_args+=(--resolve "${HARBOR_HOSTNAME}:$(active_harbor_port):127.0.0.1")
+    fi
     if [[ "${HARBOR_INSECURE}" == "true" && "${HARBOR_SCHEME}" == "https" ]]; then
         curl_args+=(-k)
     fi
